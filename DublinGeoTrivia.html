@@ -199,6 +199,15 @@
   .mapwrap.hovering .connector line.lineActive{opacity:0.95;stroke-width:3;}
   .pin{transition:opacity .15s ease, transform .15s ease;}
 
+  .headctl{display:flex;align-items:center;gap:18px;flex-wrap:wrap;}
+  .practice{display:flex;align-items:center;gap:9px;cursor:pointer;user-select:none;}
+  .practice .plabel{font-weight:600;font-size:13px;}
+  .practice input{position:absolute;opacity:0;pointer-events:none;}
+  .practice .track{width:40px;height:22px;border-radius:999px;background:rgba(28,42,46,0.22);position:relative;transition:background .18s ease;flex:none;}
+  .practice .knob{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fbf8f1;box-shadow:0 1px 3px rgba(0,0,0,0.35);transition:transform .18s ease;}
+  .practice input:checked + .track{background:var(--door-green);}
+  .practice input:checked + .track .knob{transform:translateX(18px);}
+  .practice input:focus-visible + .track{outline:2px solid var(--door-blue);outline-offset:2px;}
   .modes{display:flex;gap:6px;flex-wrap:wrap;}
   .modes button{
     font-family:'Work Sans',sans-serif;font-weight:600;font-size:13px;
@@ -221,11 +230,18 @@
 
 <header>
   <h1>Dublin Geo<span>Trivia</span></h1>
+  <div class="headctl">
+  <label class="practice" title="Show the correct answer after every guess">
+    <span class="plabel">Practice</span>
+    <input type="checkbox" id="practiceToggle" role="switch">
+    <span class="track"><span class="knob"></span></span>
+  </label>
   <div class="modes" id="modes" role="group" aria-label="Difficulty">
     <button type="button" data-mode="easy">Easy <small>10</small></button>
     <button type="button" data-mode="medium">Medium <small>20</small></button>
     <button type="button" data-mode="hard">Hard <small>30</small></button>
     <button type="button" data-mode="full">Full <small id="fullCount">all</small></button>
+  </div>
   </div>
 </header>
 
@@ -376,6 +392,7 @@ const SUBURBS = [
 const MODES = {easy:10, medium:20, hard:30, full:SUBURBS.length};
 let mode = 'easy';
 let gameId = 0;
+let practice = false;
 let TOTAL_ROUNDS = MODES[mode];
 let order = [], roundIdx = 0, totalScore = 0, results = [], locked = false;
 
@@ -498,6 +515,7 @@ function renderRound(){
 
 function clearMarkers(){
   mapWrap.querySelectorAll('.pin, .toast').forEach(el => el.remove());
+  connector.innerHTML = '';
 }
 
 function pinSVG(color, size){
@@ -519,6 +537,23 @@ function placePin(xFrac, yFrac, color, size, label, isAnswer, idx){
   return el;
 }
 
+function drawLine(idx, x1, y1, x2, y2, dim){
+  const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+  line.dataset.idx = idx;
+  line.setAttribute('x1', x1); line.setAttribute('y1', y1);
+  line.setAttribute('x2', x2); line.setAttribute('y2', y2);
+  line.setAttribute('stroke', '#1c2a2e'); line.setAttribute('stroke-width', '2');
+  line.setAttribute('stroke-dasharray', '6 5'); line.setAttribute('opacity', dim ? '0.6' : '0.85');
+  line.setAttribute('vector-effect', 'non-scaling-stroke');
+  connector.appendChild(line);
+}
+
+function drawPair(idx, gx, gy, tx2, ty2, dim){
+  placePin(gx, gy, '#1f4e8c', 30, order[idx].n, false, idx);
+  placePin(tx2, ty2, '#2f6b4f', 30, order[idx].n, true, idx);
+  drawLine(idx, gx, gy, tx2, ty2, dim);
+}
+
 function placeGuess(e){
   if(locked) return;
   locked = true;
@@ -531,6 +566,7 @@ function placeGuess(e){
   const idx = roundIdx;
   const gid = gameId;
 
+  if(practice) clearMarkers();
   placePin(gx, gy, '#1f4e8c', 30, target.n, false, idx);
 
   const dxpx = (gx - target.x) * IMG_W;
@@ -543,9 +579,15 @@ function placeGuess(e){
   document.getElementById('hudScore').textContent = totalScore;
   results.push({name: target.n, km: km, points: points, gx: gx, gy: gy});
 
-  hint.textContent = (roundIdx === TOTAL_ROUNDS-1)
-    ? 'Guess locked in for ' + target.n + '. Tallying your score…'
-    : 'Guess locked in for ' + target.n + '. Next place coming up…';
+  if(practice){
+    placePin(target.x, target.y, '#2f6b4f', 30, target.n, true, idx);
+    drawLine(idx, gx, gy, target.x, target.y, false);
+    hint.textContent = target.n + ': ' + km + ' km away — ' + points + ' pts. Next place coming up…';
+  } else {
+    hint.textContent = (roundIdx === TOTAL_ROUNDS-1)
+      ? 'Guess locked in for ' + target.n + '. Tallying your score…'
+      : 'Guess locked in for ' + target.n + '. Next place coming up…';
+  }
 
   setTimeout(function(){
     if(gid !== gameId) return;
@@ -560,17 +602,10 @@ function placeGuess(e){
 }
 
 function revealAll(){
+  clearMarkers();
   order.forEach((target, i) => {
     const r = results[i];
-    placePin(target.x, target.y, '#2f6b4f', 30, target.n, true, i);
-    const line = document.createElementNS('http://www.w3.org/2000/svg','line');
-    line.dataset.idx = i;
-    line.setAttribute('x1', r.gx); line.setAttribute('y1', r.gy);
-    line.setAttribute('x2', target.x); line.setAttribute('y2', target.y);
-    line.setAttribute('stroke', '#1c2a2e'); line.setAttribute('stroke-width', '2');
-    line.setAttribute('stroke-dasharray', '6 5'); line.setAttribute('opacity', '0.6');
-    line.setAttribute('vector-effect', 'non-scaling-stroke');
-    connector.appendChild(line);
+    drawPair(i, r.gx, r.gy, target.x, target.y, true);
   });
   hint.textContent = 'Blue pins are your guesses, green are the real spots. Hover a row to compare. Scroll to zoom.';
 }
@@ -629,6 +664,9 @@ function showFinal(){
 
 document.getElementById('againBtn').addEventListener('click', startGame);
 document.getElementById('fullCount').textContent = SUBURBS.length;
+document.getElementById('practiceToggle').addEventListener('change', function(e){
+  practice = e.target.checked;
+});
 document.querySelectorAll('#modes button').forEach(b => b.addEventListener('click', function(){
   mode = b.dataset.mode;
   startGame();
